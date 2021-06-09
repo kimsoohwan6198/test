@@ -1,0 +1,322 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using NAudio.Wave;
+using System.IO;
+using System.Net;
+using System.Xml;
+using Newtonsoft.Json.Linq;
+using MediaPlayer;
+
+namespace Minipro
+{
+    public partial class Form1 : Form
+    {
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            comboBox1.SelectedIndex = 0;
+            comboBox2.SelectedIndex = 0;
+        }
+        private void comboBox2_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            
+        }
+        Recorder recorder;
+        string massage;
+        string host_key = "159dd5d8c1f7f87a3aca67174dbe4719";
+       //string VoiceName ;
+        public Form1()
+        {
+            InitializeComponent();
+        }
+        //nuet naudio
+        public class Recorder
+        {
+
+            WaveIn sourceStream;
+            WaveFileWriter waveWriter;
+            readonly String FilePath;
+            readonly String FileName;
+            readonly int InputDeviceIndex;
+
+            public Recorder(int inputDeviceIndex, String filePath, String fileName)
+            {
+                this.InputDeviceIndex = inputDeviceIndex;
+                this.FileName = fileName;
+                this.FilePath = filePath;
+            }
+
+            public void StartRecording()
+            {
+                sourceStream = new WaveIn
+                {
+                    DeviceNumber = this.InputDeviceIndex,
+                    WaveFormat =
+                        new WaveFormat(16000, 1) //16000hz, 채널
+                };
+
+                sourceStream.DataAvailable += this.SourceStreamDataAvailable;
+
+
+                if (!Directory.Exists(FilePath))
+                {
+                    Directory.CreateDirectory(FilePath);
+                }
+
+                waveWriter = new WaveFileWriter(FilePath + FileName, sourceStream.WaveFormat);
+                sourceStream.StartRecording();
+            }
+
+            public void SourceStreamDataAvailable(object sender, WaveInEventArgs e)
+            {
+                if (waveWriter == null) return;
+                waveWriter.Write(e.Buffer, 0, e.BytesRecorded);
+                waveWriter.Flush();
+            }
+
+            public void RecordEnd()
+            {
+                if (sourceStream != null)
+                {
+                    sourceStream.StopRecording();
+                    sourceStream.Dispose();
+                    sourceStream = null;
+                }
+                if (this.waveWriter == null)
+                {
+                    return;
+                }
+                this.waveWriter.Dispose();
+                this.waveWriter = null;
+
+            }
+        }
+
+
+        private void button1_MouseDown(object sender, MouseEventArgs e)
+        {
+            //녹음 시작
+            label1.Text = "음성녹음이 시작 되었습니다";
+
+            //생성자(마이크 채널, 파일을 생성 경로, 파일이름)
+            recorder = new Recorder(0, "./voice/", "test.wave");
+            recorder.StartRecording(); //레코딩 시작
+
+        }
+
+        private void button1_MouseUp(object sender, MouseEventArgs e)
+        {
+            //녹음 끝
+            label1.Text = "음성녹음이 끝났습니다";
+            recorder.RecordEnd(); //레코딩 끝
+
+            //api~~~  0ca262e58e7a0bb207fbb50e98cfddc9
+            string url = "https://kakaoi-newtone-openapi.kakao.com/v1/recognize";
+
+            //클라이언트에서 서버로 Request를 보내준다
+            WebRequest wr = WebRequest.Create(url);
+            wr.Method = "POST"; //음성 데이터를 post방식으로 전달
+            wr.ContentType = "application/octet-stream";
+            wr.Headers.Add("Authorization", "KakaoAK " + host_key); //헤더의 추가 
+
+            FileStream fs = new FileStream("./voice/test.wave", FileMode.Open); //wave 열기
+            //Request Stream 객체를 얻어내고 이를 통해 데이타 바이트 배열을 쓰고 스트림을 닫으면 된다
+            Stream postStream = wr.GetRequestStream(); 
+            fs.CopyTo(postStream); //여기서 음성파일이 전송됨
+
+            //닫기
+            fs.Close(); //FileStream 닫기
+            fs.Dispose(); //FileStream 닫기
+            postStream.Close();
+
+            //response
+            WebResponse webR = wr.GetResponse();
+            Stream getStream = webR.GetResponseStream();
+            StreamReader sr = new StreamReader(getStream); //ResponseStream데이터 받기 
+
+            string response = sr.ReadToEnd(); //모든 문자 값
+            //결과값중 중요부분을 출력하기 위한 유니크한 s,e값
+            string startLine = "\"finalResult\",\"value\":\""; //577
+            string endLine = "\",\"nBest\":[{"; //605
+
+            int start = response.IndexOf(startLine) + startLine.Length;
+            int end = response.IndexOf(endLine);
+
+            string text = response.Substring(start, end - start); //finalResult값만 뽑기
+            richTextBox1.Text = text;
+            massage = text;
+
+        }
+        //실행버튼
+        private void button4_Click(object sender, EventArgs e)
+        {
+            if (richTextBox1.Text == "")
+            {
+                MessageBox.Show("첫번째 텍스트박스에 텍스트를 입력하거나 녹음을 입력해주세요");
+            }
+            else
+            {
+                if (richTextBox1.Text.IndexOf("메모장") != -1 && richTextBox1.Text.IndexOf("켜") != -1)
+                {
+                    System.Diagnostics.Process.Start("notepad");// 메모장
+                }
+                if (richTextBox1.Text.IndexOf("계산기") != -1 && richTextBox1.Text.IndexOf("켜") != -1)
+                {
+                    System.Diagnostics.Process.Start("calc"); //계산기
+                }
+                if (richTextBox1.Text.IndexOf("그림판") != -1 && richTextBox1.Text.IndexOf("켜") != -1)
+                {
+                    System.Diagnostics.Process.Start("mspaint"); //그림판
+                }
+                if (richTextBox1.Text.IndexOf("내일") != -1 && richTextBox1.Text.IndexOf("날씨") != -1)
+                {
+                    string data = GetWeather_Rss();
+                    richTextBox2.Text = data;
+                }
+            }
+
+
+        }
+
+        string GetWeather_Rss()
+        {
+            string url = "https://www.weather.go.kr/weather/forecast/mid-term-rss3.jsp?stnId=109";
+
+            WebRequest wr = WebRequest.Create(url);
+            wr.Method = "GET";
+
+            WebResponse wrs = wr.GetResponse();
+            Stream s = wrs.GetResponseStream();
+            StreamReader sr = new StreamReader(s);
+
+            string response = sr.ReadToEnd();
+
+            //xml파싱
+            XmlDocument xd = new XmlDocument();
+            xd.LoadXml(response);
+
+            XmlNode xn = xd["rss"]["channel"]["item"]["description"]["header"]["wf"];
+
+            string data = xn.InnerText;
+            //특정문자 공백으로 바꿈 
+            data = data.Replace("○", "");
+            data = data.Replace("<br />", "");
+
+            return data;
+        }
+
+
+        //번역
+        string translation(string input, string code)
+        {
+            string url = "https://dapi.kakao.com/v2/translation/translate?src_lang=kr&target_lang=" + code + "&query=" + input;
+
+            WebRequest wr = WebRequest.Create(url);
+            wr.Method = "GET";
+            wr.Headers.Add("Authorization", "KakaoAK " + host_key);
+
+            WebResponse wrs = wr.GetResponse();
+            Stream s = wrs.GetResponseStream();
+            StreamReader sr = new StreamReader(s);
+
+            string response = sr.ReadToEnd();
+            sr.Close();
+            s.Close();
+
+            JObject jo = JObject.Parse(response);
+            JToken jt = jo["translated_text"];
+
+            string output = "";
+            for (int i = 0; i < jt.Count(); i++)
+            {
+                output += jt[i][0].ToString() + " ";
+            }
+            return output;
+        }
+
+        //번역버튼
+        private void button2_Click(object sender, EventArgs e)
+        {
+            if (comboBox1.SelectedItem.ToString() == "언어 선택")
+            {
+                MessageBox.Show("번역할 언어를 선택해주세요");
+            }
+            else if (richTextBox1.Text == "")
+            {
+                MessageBox.Show("첫번째 텍스트박스에 텍스트를 입력하거나 녹음을 입력해주세요");
+            }
+            else
+            {
+                richTextBox2.Text = translation(richTextBox1.Text, comboBox1.SelectedItem.ToString());
+            }
+
+        }
+        void tts(string input, string VoiceName)
+        {
+            string url = "https://kakaoi-newtone-openapi.kakao.com/v1/synthesize";
+
+            WebRequest wr = WebRequest.Create(url);
+            wr.Method = "POST";
+            wr.ContentType = "application/xml"; //xml형식으로 보내주면 다양한 설정 가능
+            wr.Headers.Add("Authorization", "KakaoAK " + host_key);
+
+            //string text = "<speak>" + input + "</speak>"; //기본
+            string text = "<speak><voice name='" + VoiceName + "'>" + input + "</voice></speak>";
+
+            byte[] request = Encoding.UTF8.GetBytes(text); //string배열을 byte배열로 바꿔줌
+            Stream request_stream = wr.GetRequestStream(); //RequestStream가지고오기
+            request_stream.Write(request, 0, request.Length); //write(byte[],배열의 시작,길이)
+
+            request_stream.Close();
+
+            WebResponse wrs = wr.GetResponse();
+            Stream response_stream = wrs.GetResponseStream();
+
+            string path = "./output.mp3";
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            FileStream fs = new FileStream("./output.mp3", FileMode.Create);
+
+            response_stream.CopyTo(fs); //fs에 카피
+
+            fs.Close();
+            fs.Dispose();
+            response_stream.Close();
+            response_stream.Dispose();
+            wrs.Close();
+
+            MediaPlayerClass mpc = new MediaPlayerClass();
+            mpc.FileName = "./output.mp3";
+            mpc.Play();
+        }
+
+        //speech
+        private void button3_Click(object sender, EventArgs e)
+        {
+            
+            //VoiceName = comboBox2.SelectedIndex.ToString();
+            if (richTextBox1.Text.IndexOf("내일") != -1 && richTextBox1.Text.IndexOf("날씨") != -1)
+            {
+
+                tts(richTextBox2.Text, comboBox2.SelectedItem.ToString());
+            }
+            else
+            {
+                if (richTextBox2.Text == "")
+                {
+                    tts(richTextBox1.Text, comboBox2.SelectedItem.ToString());
+                }
+                else tts(richTextBox2.Text, comboBox2.SelectedItem.ToString());
+            }
+        }
+    }
+}
